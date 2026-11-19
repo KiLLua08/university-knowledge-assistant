@@ -182,17 +182,150 @@ Use meaningful milestone-based commits with clear commit messages.
 
 ---
 
-## Future Decisions
-Future technical decisions will be added here as the project progresses, including:
-- Vector database selection
-- Embedding model selection
-- Chunking strategy
-- Retrieval approach
-- LLM selection for RAG
-- Frontend framework
-- Deployment strategy
+## Decision 006 — PyMuPDF for PDF extraction
+
+**Date:** 2026-11-19
+
+**Decision:**
+Use `pymupdf` to extract text page by page and keep `document_id`, `filename`,
+`page_number` and `text` on every record.
+
+**Reason:**
+The Day 1 smoke test already extracted a 15-page PDF successfully with
+PyMuPDF. It is fast, gives direct page access and returns plain text without
+an extra service.
+
+**Alternatives Considered:**
+- PyPDF2 (rejected: already removed from dependencies, weaker page handling)
+- OCR pipelines (rejected for now: unnecessary complexity and no scanned PDFs)
+
+**Implications:**
+Scanned pages produce empty text and are skipped later; OCR remains future
+work. Page numbers survive all the way into ChromaDB metadata.
+
+**Status:** Accepted
 
 ---
 
-**Version:** 0.1.0  
-**Last Updated:** 2026-10-05
+## Decision 007 — Conservative text cleaning
+
+**Date:** 2026-11-19
+
+**Decision:**
+Normalize line endings, collapse repeated spaces, cap blank lines at one, and
+leave words, case, punctuation, tabs and symbols untouched.
+
+**Reason:**
+Course documents contain formulas, code and technical notation. Lowercasing,
+punctuation removal or stemming would damage exactly the content we want to
+retrieve.
+
+**Alternatives Considered:**
+- Full NLP normalization with lemmatization (rejected: destructive here)
+- No cleaning at all (rejected: PDF layout introduces noisy blank lines)
+
+**Status:** Accepted
+
+---
+
+## Decision 008 — Character chunking with deterministic IDs
+
+**Date:** 2026-11-19
+
+**Decision:**
+Chunk each cleaned page into at most 1000 characters with 150 characters of
+overlap, using IDs like `deep_learning_p4_c0000`.
+
+**Reason:**
+Simple to explain and debug for an MVP. Overlap keeps context across a
+boundary. Deterministic IDs let ChromaDB `upsert` make re-indexing idempotent.
+Pages are never merged, so page references remain exact.
+
+**Alternatives Considered:**
+- Token/transformer-aware chunking (deferred: extra complexity)
+- Recursive semantic splitters and LangChain (rejected: unnecessary here)
+
+**Implications:**
+A formula or table can still be split mid-line; this is a documented
+limitation, not a hidden failure.
+
+**Status:** Accepted
+
+---
+
+## Decision 009 — Pretrained all-MiniLM-L6-v2 on CPU by default
+
+**Date:** 2026-11-19
+
+**Decision:**
+Use `sentence-transformers/all-MiniLM-L6-v2`, load it once per process, and
+default to CPU with an optional `--device cuda`.
+
+**Reason:**
+Small, fast, good general-purpose semantic search quality and no fine-tuning
+needed. The RTX 3070 has 8 GB VRAM that LM Studio will need later, so CPU is
+the safe default today.
+
+**Alternatives Considered:**
+- Larger models (rejected: slower, more VRAM, no demonstrated benefit here)
+- Fine-tuning (rejected: no labelled dataset yet)
+
+**Status:** Accepted
+
+---
+
+## Decision 010 — Local persistent ChromaDB with explicit embeddings
+
+**Date:** 2026-11-19
+
+**Decision:**
+Use ChromaDB's `PersistentClient` in `data/chroma/` and pass embeddings
+explicitly (`embedding_function=None`).
+
+**Reason:**
+Local persistence, zero infrastructure and built-in metadata. Supplying our
+own vectors guarantees indexing and querying use the exact same model.
+
+**Alternatives Considered:**
+- Remote Pinecone/Weaviate (rejected: cost, network, unnecessary for MVP)
+- FAISS files (deferred: no metadata/document storage layer provided here)
+
+**Status:** Accepted
+
+---
+
+## Decision 011 — Spark as a local teaching pipeline, not a cluster
+
+**Date:** 2026-11-19
+
+**Decision:**
+Run one local Spark session (`local[2]`) that creates a DataFrame from chunk
+records, filters empties, transforms columns, computes distinct counts and
+collects the small result to the driver.
+
+**Reason:**
+The project must demonstrate real Spark DataFrame transformations, but the
+sample dataset has one 15-page PDF. Pretending it is a distributed production
+system would be misleading.
+
+**Alternatives Considered:**
+- Pure Python lists only (rejected: does not exercise the Big Data component)
+- Spark cluster/HDFS (rejected: out of scope for this milestone)
+
+**Status:** Accepted
+
+---
+
+## Future Decisions
+Decisions still to make in later milestones:
+- LLM selection and LM Studio/Qwen integration
+- RAG context assembly and answer-citation format
+- Retrieval evaluation metrics and benchmark dataset
+- API design with FastAPI
+- PostgreSQL metadata storage (if needed)
+- Frontend framework and deployment strategy
+
+---
+
+**Version:** 0.2.0
+**Last Updated:** 2026-11-19

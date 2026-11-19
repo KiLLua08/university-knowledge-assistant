@@ -1,43 +1,27 @@
 # Tests
 
-This directory contains the test suite for the university knowledge assistant.
+The suite is intentionally fast and offline: model loading is mocked and
+ChromaDB uses `tmp_path` directories. Only the Spark test starts a real local
+session (about 20 seconds for the whole suite).
 
-## Purpose
-- Unit tests for individual components
-- Integration tests for pipelines
-- End-to-end tests for the system
-- Performance benchmarks
+## Files
 
-## Structure
-```
-tests/
-├── __init__.py
-├── test_config.py
-├── test_data_ingestion.py
-├── test_preprocessing.py
-├── test_embeddings.py
-├── test_retrieval.py
-└── test_integration.py
-```
+| File | What it covers |
+| --- | --- |
+| `test_package.py` | Package import and version |
+| `test_pdf_loader.py` | PyMuPDF extraction, page metadata, empty pages, validation |
+| `test_text_cleaner.py` | Whitespace normalization without destroying notation |
+| `test_chunker.py` | Chunking, overlap, metadata, unique/deterministic IDs, invalid parameters |
+| `test_spark_pipeline.py` | Spark filtering, column transformation and counts |
+| `test_embedding_model.py` | Model loading args, embedding shape/type, empty input (mocked) |
+| `test_vector_store.py` | ChromaDB upsert idempotency, retrieval metadata, `top_k` |
 
-## Running Tests
+## Running
+
 ```bash
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_preprocessing.py
-
-# Run with coverage
-pytest --cov=src/university_knowledge_assistant
+python -m pytest -v
+python -m pytest tests/test_chunker.py -v
 ```
 
-## Guidelines
-- Write tests for new functionality
-- Maintain high test coverage
-- Tests should be fast and reliable
-- Mock external dependencies when appropriate
-
----
-
-**Status:** Foundation only - Awaiting implementation
+PDF fixtures and ChromaDB databases are created in temporary directories and
+removed after each test. No real PDFs or downloaded models are required.

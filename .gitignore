@@ -24,7 +24,7 @@ wheels/
 venv/
 env/
 ENV/
-.venv
+.venv/
 
 # IDE
 .vscode/
@@ -39,6 +39,7 @@ ENV/
 *.ipynb_checkpoints
 
 # Data files (large files should not be committed)
+# These patterns ignore the CONTENTS so the tracked .gitkeep files survive.
 data/raw/*
 data/interim/*
 data/processed/*
@@ -57,13 +58,22 @@ logs/*.log
 .env
 .env.local
 
-# Models and checkpoints
-models/
+# ChromaDB persistence directories
+data/chroma/
+chroma_db/
+.chroma/
+
+# Models and checkpoints (root-only path: the src/.../models/ package must stay tracked)
+/models/
 checkpoints/
 *.pt
 *.pth
 *.bin
 *.safetensors
+.cache/
+hf_cache/
+torch_cache/
+sentence_transformers_cache/
 
 # Experiments (keep structure, exclude large outputs)
 experiments/*/*.png

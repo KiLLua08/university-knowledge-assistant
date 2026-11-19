@@ -1,248 +1,176 @@
 # System Architecture
 
-## Overview
-This document describes the planned architecture for the AI-Powered University Knowledge Assistant. The architecture is designed to support semantic search, question answering, and large-scale document processing.
+**Status: Day 2 milestone implemented (MVP).** Last updated 2026-11-19.
 
-## High-Level Architecture
+This document describes the architecture that is **actually running** in the
+repository, and clearly separates it from components that are only planned.
 
-### User Interaction Flow
+---
 
-```
-Student
-  ↓
-Application Interface (PLANNED)
-  ↓
-AI Assistant (PLANNED)
-  ↓
-Retrieval / NLP Layer (PLANNED)
-  ↓
-Knowledge Base (PLANNED)
-  ↓
-Educational Documents (PLANNED)
-```
+## 1. Implemented components
 
-### Big Data Processing Pipeline
+| Layer | Component | Status | File |
+| --- | --- | --- | --- |
+| Ingestion | PyMuPDF page extraction | Implemented | `src/university_knowledge_assistant/data/pdf_loader.py` |
+| Preprocessing | Conservative whitespace cleaning | Implemented | `src/university_knowledge_assistant/preprocessing/text_cleaner.py` |
+| Preprocessing | Character chunking with overlap | Implemented | `src/university_knowledge_assistant/preprocessing/chunker.py` |
+| Big data | Local Spark DataFrame pipeline | Implemented | `src/university_knowledge_assistant/pipelines/document_pipeline.py` |
+| Models | Pretrained sentence embeddings | Implemented | `src/university_knowledge_assistant/models/embedding_model.py` |
+| Retrieval | Persistent ChromaDB store + search | Implemented | `src/university_knowledge_assistant/retrieval/vector_store.py` |
+| Scripts | Indexing and retrieval demos | Implemented | `scripts/index_documents.py`, `scripts/test_retrieval.py` |
+| Tests | 28 automated tests | Implemented | `tests/` |
 
-```
-Educational Documents (PLANNED)
-  ↓
-Data Ingestion (PLANNED)
-  ↓
-Distributed Processing (PLANNED - Apache Spark)
-  ↓
-Preprocessing (PLANNED)
-  ↓
-Document Representation (PLANNED - Embeddings)
-  ↓
-Semantic Retrieval (PLANNED)
-  ↓
-Deep Learning / NLP (PLANNED)
-  ↓
-AI Response (PLANNED)
-  ↓
-Student
-```
+### Planned components (not implemented here)
 
-## Component Architecture
+FastAPI, LLM answer generation (local Qwen through LM Studio), RAG context
+assembly, source-cited answers, PostgreSQL metadata storage, hybrid/keyword
+search, OCR, frontend, authentication, Docker/Kubernetes/cloud deployment and
+distributed Spark clusters. None of these are claimed as working today.
 
-### Currently Implemented
-- **None** - Project is in initialization phase
+---
 
-### Planned Components
-
-#### 1. Data Layer
-- **Document Storage**: Raw document repository (PDFs, notes, etc.)
-- **Metadata Database**: PostgreSQL for document metadata
-- **Vector Database**: Semantic embeddings storage (ChromaDB/Pinecone/Weaviate)
-- **Data Lake**: Distributed storage for large document collections
-
-#### 2. Processing Layer
-- **Ingestion Pipeline**: Document loading and validation
-- **Preprocessing Pipeline**: Text extraction, cleaning, normalization
-- **Chunking Pipeline**: Document segmentation for processing
-- **Embedding Pipeline**: Vector representation generation
-- **Spark Processing**: Distributed data processing for scale
-
-#### 3. Retrieval Layer
-- **Index Manager**: Building and maintaining search indices
-- **Semantic Search**: Vector similarity search
-- **Hybrid Search**: Combining semantic and keyword search
-- **Query Understanding**: Natural language query processing
-
-#### 4. AI Layer
-- **RAG Pipeline**: Retrieval-Augmented Generation
-- **Context Assembly**: Gathering relevant context
-- **Answer Generation**: LLM-based response generation
-- **Source Attribution**: Linking answers to source documents
-
-#### 5. Application Layer
-- **API Interface**: REST/GraphQL API (FastAPI)
-- **Web Interface**: User-facing application (PLANNED)
-- **Authentication**: User management (PLANNED)
-- **Session Management**: Conversation history (PLANNED)
-
-## Data Flow
-
-### Document Processing Flow
+## 2. Actual indexing data flow
 
 ```
-Raw Documents
-  ↓
-Ingestion (validation, metadata extraction)
-  ↓
-Preprocessing (text extraction, cleaning)
-  ↓
-Chunking (segmentation into manageable pieces)
-  ↓
-Embedding Generation (vector representation)
-  ↓
-Indexing (vector database + metadata)
-  ↓
-Ready for Retrieval
+data/raw/*.pdf
+    |
+    |  extract_pdf()                      data/pdf_loader.py
+    v
+Page records: {document_id, filename, page_number, text}
+    |
+    |  clean_text() per page              preprocessing/text_cleaner.py
+    v
+Cleaned page records (same metadata)
+    |
+    |  chunk_pages() per page             preprocessing/chunker.py
+    v
+Chunk records: {..., chunk_id, chunk_index, text}
+    |
+    |  process_chunks()                   pipelines/document_pipeline.py
+    |  Spark: filter -> select -> withColumn -> distinct counts -> collect
+    v
+Embedding-ready records + counts
+    |
+    |  load_embedding_model() once
+    |  embed_texts()                      models/embedding_model.py
+    v
+Vectors (one per chunk)
+    |
+    |  VectorStore.upsert_chunks()        retrieval/vector_store.py
+    v
+data/chroma/  (persistent local ChromaDB collection)
 ```
 
-### Query Processing Flow
+Entry point: `python scripts/index_documents.py`.
+
+### Actual query data flow
 
 ```
-User Query
-  ↓
-Query Understanding (intent, entities)
-  ↓
-Retrieval (semantic search + metadata filtering)
-  ↓
-Context Assembly (gather relevant passages)
-  ↓
-Answer Generation (LLM with retrieved context)
-  ↓
-Source Attribution (identify source documents)
-  ↓
-Response to User
+Question string
+    |
+    |  load_embedding_model()  (same model name and device as indexing)
+    |  embed_texts([question])            models/embedding_model.py
+    v
+Query vector
+    |
+    |  VectorStore.search(query_vector, top_k=3)
+    v
+Top 3 chunks + {filename, page_number, document_id, chunk_id} + distance
 ```
 
-## Technology Stack by Layer
+Entry point: `python scripts/test_retrieval.py`. There is **no answer
+generation** step: the script displays retrieved evidence only.
 
-### Data Layer
-- **Document Storage**: File system / Object storage (S3 compatible)
-- **Metadata Database**: PostgreSQL
-- **Vector Database**: TBD (ChromaDB, Pinecone, or Weaviate)
-- **Data Lake**: HDFS / S3 (for Spark integration)
+---
 
-### Processing Layer
-- **Python**: Core language
-- **Apache Spark / PySpark**: Distributed processing
-- **Hugging Face Transformers**: Text processing and embeddings
-- **PyTorch**: Deep learning models
+## 3. Design rationale
 
-### Retrieval Layer
-- **Vector Database**: Semantic search
-- **FAISS**: Alternative vector similarity search
-- **Elasticsearch**: Optional keyword search enhancement
+### Why page-level metadata is preserved
 
-### AI Layer
-- **Hugging Face Transformers**: LLM integration
-- **LangChain**: Orchestration framework (optional)
-- **Custom RAG Pipeline**: Retrieval-augmented generation
+A page number is the smallest unit a student can meaningfully cite. If we
+flattened a PDF into one string early, we could not tell later which page a
+chunk came from. Every record therefore carries `document_id`, `filename` and
+a 1-based `page_number`, and every chunk inherits them. ChromaDB stores them
+as metadata, so retrieval results can be shown as "deep_learning.pdf, page 7".
+This is the foundation for the future source-attribution requirement of the
+RAG system.
 
-### Application Layer
-- **FastAPI**: API framework
-- **React/Vue**: Frontend (PLANNED)
-- **Docker**: Containerization
-- **Nginx**: Reverse proxy (deployment)
+### Why chunking is needed
 
-## Scalability Considerations
+Embedding models have a limited context window, and a whole 15-page chapter
+would produce one vague vector. Chunks of ~1000 characters keep each vector
+focused on one idea. A 150-character overlap reduces the chance that a sentence
+split across a boundary loses its context. Chunking is done **per page**, so a
+chunk never mixes text from two pages. IDs such as `deep_learning_p4_c0000`
+are deterministic, which makes re-indexing idempotent via ChromaDB `upsert`.
 
-### Horizontal Scaling
-- Spark cluster for distributed processing
-- Vector database with sharding
-- API load balancing
-- Stateless application design
+### What embeddings are and why we chose this model
 
-### Performance Optimization
-- Document caching
-- Embedding caching
-- Query result caching
-- Lazy loading of large documents
+An embedding is a numerical vector representing the meaning of a text; texts
+with similar meanings lie close together in that vector space. We use the
+pretrained `sentence-transformers/all-MiniLM-L6-v2` model (384 dimensions):
+it is small, fast on CPU, widely used for semantic search, and suitable for a
+8 GB GPU machine where LM Studio may need VRAM later. The model is loaded once
+per process and reused for all chunks and for the query. It is **not**
+fine-tuned in this milestone. CPU is the safe default; `--device cuda` is
+available for experimentation.
 
-### Data Partitioning
-- Document collection partitioning
-- Time-based partitioning for updates
-- User-based partitioning (if multi-tenant)
+### Why ChromaDB
 
-## Security Considerations
+ChromaDB gives us a local, persistent vector store with metadata filtering and
+similarity search without running a service. This keeps the MVP offline, free
+and easy to inspect. The store is created with `embedding_function=None`
+because embeddings are supplied explicitly by our Sentence Transformers model;
+this prevents ChromaDB from silently using a different embedding model for
+queries. No remote vector database is used.
 
-### Data Security
-- Document access control
-- User authentication
-- API rate limiting
-- Input validation
+### How Spark is used in this MVP
 
-### Privacy
-- No personal data in training
-- User query logging (with consent)
-- Document source attribution
-- Compliance with university policies
+The Spark component is a teaching tool for a real DataFrame transformation
+pipeline: it creates a DataFrame with an explicit schema from the extracted
+records, filters blank text, selects and renames the embedding-ready columns,
+adds a derived `text_length` column, and performs `count()` and `distinct()`
+actions before collecting the small result to the driver. It runs with
+`local[2]` on one laptop. **This is not a production distributed cluster** and
+the dataset is far too small to benefit from distribution. The same code shape
+could later operate on larger datasets, but no HDFS, cluster manager or cloud
+storage is part of this milestone.
 
-## Monitoring & Observability
+---
 
-### Logging
-- Application logs
-- Processing pipeline logs
-- Error tracking
-- Performance metrics
+## 4. Explicitly not implemented
 
-### Metrics
-- Query response time
-- Retrieval accuracy
-- System resource usage
-- User satisfaction
+- No OCR: scanned/image-only PDFs produce empty pages and are skipped at chunking.
+- No LLM/RAG answer generation, no LM Studio integration yet.
+- No FastAPI, frontend, authentication or session management.
+- No PostgreSQL, HDFS, Kubernetes or cloud deployment.
+- No LangChain; the pipeline is plain, readable Python.
+- No distributed Spark execution, no Spark cluster and no performance tuning.
 
-## Deployment Architecture
+---
 
-### Development
-- Local development environment
-- Jupyter notebooks for experimentation
-- Git for version control
+## 5. Known limitations
 
-### Production (PLANNED)
-- Containerized deployment (Docker)
-- Orchestration (Kubernetes or Docker Compose)
-- Database clustering
-- Load balancing
-- CI/CD pipeline
+- Character-based chunking can split a formula, table or code block mid-line.
+- ChromaDB's default distance is L2; vectors are unit-normalized, so ranking is
+  equivalent to cosine similarity for this MVP.
+- Only PDFs directly inside `data/raw/` are discovered.
+- Re-indexing detects duplicates by `chunk_id`; changing the document stem
+  creates new IDs rather than updating old ones.
+- Retrieval is evaluated by manual inspection, not with a relevance benchmark.
+- The MiniLM model is downloaded from Hugging Face on first run (~90 MB).
 
-## Implementation Phases
+---
 
-### Phase 1: Foundation (Current)
-- Project structure
-- Documentation
-- Basic configuration
+## 6. Running the implemented pipeline
 
-### Phase 2: Data Processing
-- Document ingestion
-- Preprocessing pipeline
-- Basic indexing
+From the repository root, with the `.venv` Python active:
 
-### Phase 3: Retrieval
-- Vector database setup
-- Semantic search implementation
-- Retrieval evaluation
+```bash
+python -m pytest -v
+python scripts/index_documents.py
+python scripts/test_retrieval.py
+```
 
-### Phase 4: AI Assistant
-- RAG pipeline
-- Answer generation
-- Source attribution
-
-### Phase 5: Application
-- API development
-- User interface
-- Integration testing
-
-### Phase 6: Production
-- Deployment setup
-- Monitoring
-- Performance optimization
-
-## Version
-- Version: 0.1.0 (Preliminary Architecture)
-- Last Updated: 2026-10-05
-- Status: PLANNED - No components implemented yet
+`index_documents.py` prints PDF, page, chunk and indexed-vector counts.
+`test_retrieval.py` prints the top 3 chunks with file and page metadata.

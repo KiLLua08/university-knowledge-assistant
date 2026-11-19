@@ -1,134 +1,128 @@
 # AI-Powered University Knowledge Assistant
 
 ## Status
-🟡 Project initialization
+
+🟢 **Day 2 milestone implemented:** PDF extraction, cleaning, chunking, a local
+Spark DataFrame pipeline, pretrained embeddings, persistent ChromaDB indexing
+and semantic retrieval demos.
+
+This is a learning MVP, not a production system. There is no LLM answer
+generation, API or frontend yet.
 
 ## Overview
-An AI-powered knowledge assistant designed for university students to help them understand and navigate their academic resources including course notes, lecture PDFs, TD/TP documents, exercises, previous exams, and academic references.
 
-## Problem
-University students often have large amounts of academic material distributed across PDFs, lecture notes, exercises, exams and other documents. Finding relevant information and understanding relationships between these resources can be difficult and time-consuming.
+The assistant helps university students find relevant passages in their course
+PDFs. Today it indexes PDFs into a local vector store and returns the most
+relevant chunks with **file and page references**. Answers grounded in those
+chunks are planned for a later milestone.
 
-## Objectives
-The project aims to build an AI assistant capable of:
-- Processing large collections of educational documents
-- Helping students retrieve relevant academic information
-- Providing context-aware explanations
-- Supporting semantic search across academic materials
-- Source attribution for all answers
+## Implemented pipeline
 
-## Planned Technologies
-- **Python**: Core programming language
-- **PyTorch**: Deep learning framework
-- **Hugging Face Transformers**: NLP models and embeddings
-- **Apache Spark / PySpark**: Distributed data processing
-- **PostgreSQL**: Relational database
-- **Vector database**: Semantic search (to be selected)
-- **FastAPI**: API framework
-- **Docker**: Containerization
-- **Git/GitHub**: Version control
-- **Jupyter**: Interactive development
-
-*Note: Technology choices may evolve based on experimentation.*
-
-## Project Architecture
-See [docs/architecture.md](docs/architecture.md) for detailed architecture documentation.
-
-## Repository Structure
 ```
-university-knowledge-assistant/
-├── README.md                 # This file
-├── LICENSE                   # Project license
-├── .gitignore               # Git ignore rules
-├── .env.example             # Environment variables template
-├── requirements.txt          # Python dependencies
-├── pyproject.toml          # Python project configuration
-│
-├── docs/                    # Project documentation
-│   ├── project_scope.md     # Project scope and objectives
-│   ├── architecture.md      # System architecture
-│   ├── development_log.md   # Development milestones
-│   └── decisions.md         # Technical decisions log
-│
-├── data/                    # Data directories
-│   ├── raw/                 # Original, unmodified data
-│   ├── interim/            # Intermediate processed data
-│   ├── processed/           # Final processed datasets
-│   └── external/            # External data sources
-│
-├── notebooks/               # Jupyter notebooks for experimentation
-│   └── README.md
-│
-├── src/                     # Source code
-│   └── university_knowledge_assistant/
-│       ├── __init__.py
-│       ├── config/          # Configuration management
-│       ├── data/            # Data loading and ingestion
-│       ├── preprocessing/  # Data preprocessing utilities
-│       ├── models/          # ML/DL models
-│       ├── retrieval/       # Information retrieval components
-│       ├── pipelines/       # End-to-end pipelines
-│       └── utils/           # Utility functions
-│
-├── tests/                   # Test suite
-│   └── README.md
-│
-├── scripts/                 # Utility scripts
-│   └── README.md
-│
-├── experiments/             # Experimental code and results
-│   └── README.md
-│
-└── logs/                    # Application logs
-    └── README.md
+PDFs in data/raw/
+  -> PyMuPDF extraction (one record per page)
+  -> conservative text cleaning
+  -> character chunking (1000 chars, 150 overlap, per page)
+  -> local Spark DataFrame filter / transform / count
+  -> all-MiniLM-L6-v2 embeddings (loaded once, CPU by default)
+  -> ChromaDB persistent collection at data/chroma/
+  -> top-k semantic retrieval with filename + page metadata
 ```
 
-## Development Status
+See [docs/architecture.md](docs/architecture.md) for the detailed data flow and
+rationale, [docs/decisions.md](docs/decisions.md) for technical choices, and
+[docs/development_log.md](docs/development_log.md) for progress.
 
-### Completed
-- ✅ Project initialization
-- ✅ Initial scope definition
-- ✅ Preliminary architecture documentation
-- ✅ Development documentation foundation
-- ✅ Testing foundation
+## Requirements
 
-### In Progress
-- 🟡 Dataset discovery
-- 🟡 Data collection
+- Windows 11, Python 3.11.9, Java 17
+- PyMuPDF, PySpark 4.x, Sentence Transformers, ChromaDB (installed via the project)
+- Optional GPU is not required; CPU is the default embedding device
 
-### Planned
-- ⏳ Data preprocessing
-- ⏳ Big Data pipeline
-- ⏳ Deep Learning experimentation
-- ⏳ Semantic retrieval
-- ⏳ AI assistant
-- ⏳ Evaluation
-- ⏳ Deployment
+## Setup
 
-## Academic Objectives
-This project serves as a practical learning experience for:
-- Deep Learning
-- Natural Language Processing
-- Transformers
-- Information Retrieval
-- Big Data
-- Distributed Data Processing
-- Data Engineering
-- Machine Learning evaluation
-- Software engineering
-- AI system deployment
+```powershell
+# From the repository root
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Place your own PDFs in `data/raw/` (ignored by Git). A 15-page sample
+`deep_learning.pdf` is used for local testing and is **not committed**.
+
+## Usage
+
+```powershell
+# Run all automated tests
+python -m pytest -v
+
+# Extract, clean, chunk, process with Spark, embed and index every PDF
+python scripts/index_documents.py
+
+# Retrieve the top 3 chunks for a sample question
+python scripts/test_retrieval.py
+
+# Optional: customise a run
+python scripts/index_documents.py --chunk-size 800 --chunk-overlap 100 --device cpu
+python scripts/test_retrieval.py --question "What is backpropagation?" --top-k 3
+```
+
+The first indexing run downloads the ~90 MB MiniLM model from Hugging Face.
+Later runs reuse the local cache. Indexing prints PDF, page, chunk and vector
+counts; retrieval prints each chunk's text, filename and page number.
+
+## Repository structure
+
+```
+src/university_knowledge_assistant/
+├── data/           # PDF extraction (pdf_loader.py)
+├── preprocessing/  # text_cleaner.py, chunker.py
+├── pipelines/      # local PySpark DataFrame pipeline
+├── models/         # Sentence Transformers embedding wrapper
+├── retrieval/      # ChromaDB vector store
+└── utils/          # shared Spark environment helper
+scripts/
+├── index_documents.py          # end-to-end indexing
+├── test_retrieval.py           # manual retrieval check
+└── spark_smoke_test.py         # Day 1 environment check
+tests/                          # pytest suite
+docs/                           # architecture, log and decisions
+data/raw/                       # local PDFs (Git-ignored)
+data/chroma/                    # ChromaDB persistence (Git-ignored)
+```
+
+## Day 2 test results
+
+`python -m pytest -v` → **28 passed**.
+
+Indexing the sample PDF produced 15 pages, 48 chunks and 48 indexed vectors.
+`test_retrieval.py` returned 3 chunks with page metadata. Exact console output
+is recorded in [docs/development_log.md](docs/development_log.md).
+
+## Planned (not implemented)
+
+- RAG answer generation with a local Qwen model through LM Studio
+- FastAPI service and simple UI
+- Source-cited natural-language answers
+- OCR for scanned PDFs, hybrid search, evaluation benchmarks
+- PostgreSQL metadata and larger-scale distributed processing
+
+## Academic objectives
+
+This project is a practical way to study Deep Learning, NLP, Transformers,
+Information Retrieval, Big Data processing, data engineering, software testing
+and system architecture.
 
 ## Documentation
-- [Project Scope](docs/project_scope.md) - Detailed project objectives and scope
-- [Architecture](docs/architecture.md) - System architecture and design
-- [Development Log](docs/development_log.md) - Development milestones and progress
-- [Decisions](docs/decisions.md) - Technical decisions and rationale
 
-## Getting Started
-This project is currently in the initialization phase. Detailed setup instructions will be added as the project progresses.
+- [Project Scope](docs/project_scope.md)
+- [Architecture](docs/architecture.md)
+- [Development Log](docs/development_log.md)
+- [Decisions](docs/decisions.md)
 
-## License
-[To be determined]
+## Data and licensing
 
-## Contact
-[To be added]
+Do not commit university PDFs or other copyrighted course material: `data/raw/`
+and `data/chroma/` are Git-ignored. The repository's own license is to be
+determined.
