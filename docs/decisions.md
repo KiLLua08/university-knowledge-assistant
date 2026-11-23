@@ -316,16 +316,153 @@ system would be misleading.
 
 ---
 
-## Future Decisions
-Decisions still to make in later milestones:
-- LLM selection and LM Studio/Qwen integration
-- RAG context assembly and answer-citation format
-- Retrieval evaluation metrics and benchmark dataset
-- API design with FastAPI
-- PostgreSQL metadata storage (if needed)
-- Frontend framework and deployment strategy
+## Decision 012 — LM Studio via OpenAI-compatible HTTP
+
+**Date:** 2026-11-23
+
+**Decision:**
+Use `httpx` to call LM Studio's `/v1/chat/completions` endpoint with the local
+model ID `qwen3.5-9b`, system/user messages, configured temperature/max tokens,
+a request timeout and distinct error types.
+
+**Reason:**
+LM Studio already hosts the model locally and exposes a stable OpenAI-style
+API. Calling it over HTTP avoids loading a second copy of a multi-billion
+parameter model inside the Python process and keeps generation separate from
+retrieval.
+
+**Alternatives Considered:**
+- Loading Qwen with Transformers in-process (rejected: duplicate VRAM/RAM use)
+- LangChain LLM wrappers (rejected: unnecessary abstraction for one endpoint)
+- Cloud LLM APIs (rejected: course data should stay local; adds cost/secrets)
+
+**Implications:**
+LM Studio must be running with `qwen3.5-9b` loaded for `/ask` to generate.
+Connection, timeout, HTTP, invalid-JSON and invalid-body failures are reported
+clearly. The API key is sent only in the Authorization header and never logged.
+
+**Status:** Accepted
 
 ---
 
-**Version:** 0.2.0
-**Last Updated:** 2026-11-19
+## Decision 013 — Centralized validated configuration
+
+**Date:** 2026-11-23
+
+**Decision:**
+Read all runtime settings in `config.py` from environment variables / `.env`
+and expose one cached `Settings` instance through `get_settings()`.
+
+**Reason:**
+Scattering URLs, model names and thresholds across modules makes behaviour hard
+to reproduce and risks per-request environment reads. Validation catches bad
+numeric values and empty strings at startup.
+
+**Alternatives Considered:**
+- Module-level constants with no overrides (rejected: cannot switch endpoints)
+- Reading `os.getenv()` in every function (rejected: inconsistent and repeated)
+- Committing a populated `.env` (rejected: secret hygiene)
+
+**Implications:**
+`.env.example` documents defaults; `.env` stays ignored. Changing settings in a
+running process requires a restart, which is acceptable for this MVP.
+
+**Status:** Accepted
+
+---
+
+## Decision 014 — Metadata-derived sources and no-generation-on-empty-retrieval
+
+**Date:** 2026-11-23
+
+**Decision:**
+Build every returned source from retrieved ChromaDB metadata and deduplicate
+it. If retrieval returns no chunks, return a fixed no-supporting-material
+answer with `sources=[]` and do not call the LLM.
+
+**Reason:**
+A language model can confidently invent filenames, pages and citations. The
+system prompt asks for grounded behaviour, but the API contract must not depend
+on model compliance. Generating from an empty context would be ungrounded by
+definition.
+
+**Alternatives Considered:**
+- Parsing citations from the LLM answer (rejected: untrusted and fragile)
+- Always calling the LLM, even with empty context (rejected: invites hallucination)
+- Returning only chunk text without metadata (rejected: poor source attribution)
+
+**Implications:**
+Answers can refer to `[Source N]` labels in the prompt context, but source
+objects are produced independently from metadata. The pipeline is honest when
+the index has no evidence.
+
+**Status:** Accepted
+
+---
+
+## Decision 015 — Small modular FastAPI with one cached pipeline
+
+**Date:** 2026-11-23
+
+**Decision:**
+Expose `GET /health`, `POST /ask` and `GET /docs` from an `api/` package with
+Pydantic schemas and an `lru_cache`-backed RAG pipeline dependency. `/health`
+reports `llm_status: "not_checked"` rather than probing LM Studio.
+
+**Reason:**
+FastAPI provides automatic validation and OpenAPI docs with minimal code.
+Caching the pipeline avoids reloading MiniLM or recreating ChromaDB/HTTP
+clients per request. A liveness endpoint must not claim a dependency is healthy
+without checking it.
+
+**Alternatives Considered:**
+- Plain `http.server` handlers (rejected: no validation or docs)
+- Building the pipeline inside each route call (rejected: repeated heavy init)
+- A deep LLM health probe in `/health` (rejected: slow and would misreport state)
+
+**Implications:**
+Invalid request bodies return 422, pipeline value errors return 400, and LLM
+failures return 502. Streaming, auth and rate limiting are intentionally absent
+from this MVP.
+
+**Status:** Accepted
+
+---
+
+## Decision 016 — Larger token budget for Qwen reasoning
+
+**Date:** 2026-11-23
+
+**Decision:**
+Default `LLM_MAX_TOKENS` to `2048` and reject responses that contain only
+`reasoning_content` with a specific `LLMResponseError`.
+
+**Reason:**
+Real integration showed `qwen3.5-9b` returning empty `content` at 1024 tokens
+because it spent the budget on internal reasoning. At 2048 tokens it produced
+the final answer. Returning `reasoning_content` as the answer would be wrong.
+
+**Alternatives Considered:**
+- Keeping 1024 and parsing reasoning text (rejected: not the user-facing answer)
+- Disabling reasoning in LM Studio settings (rejected: out-of-scope model config)
+- Hardcoding an even larger budget (rejected: 2048 is configurable and worked)
+
+**Implications:**
+Users can override `LLM_MAX_TOKENS` in `.env`; a reasoning-only response now
+gives an actionable error instead of an empty or misleading answer.
+
+**Status:** Accepted
+
+---
+
+## Future Decisions
+Decisions still to make in later milestones:
+- Retrieval relevance and groundedness evaluation metrics / benchmark dataset
+- PostgreSQL metadata storage (if needed)
+- Frontend framework, streaming UX and deployment strategy
+- Authentication and multi-user behaviour (if ever required)
+
+---
+
+**Version:** 0.3.0
+**Last Updated:** 2026-11-23
